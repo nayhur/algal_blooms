@@ -12,7 +12,7 @@ library(tidyverse)
 data.dir <- "../data/gee/"
 
 # List files in Google Earth Engine folder
-files <- list.files(data.dir)
+files <- list.files(data.dir, pattern = "*.csv")
 
 # Import files into list
 data.l <- lapply(paste0(data.dir, files), read.csv, stringsAsFactors = F)
@@ -42,3 +42,8 @@ df %>%
   select(sensor, date, type, id2, bcpos_id, osmp_id, 
          BLU:hrwi, lswi:nir_red_br, qa_val) %>% 
   saveRDS(paste0(data.dir, "sensors_all_aggregated.RDS"))
+
+# Example plot
+filter(df, id2 == 4 & date > as.Date("2017-04-01")) %>% 
+  ggplot() +
+  geom_line(aes(date, nir_red_br, color = sensor))
