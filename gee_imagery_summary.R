@@ -28,13 +28,67 @@ files <- data.frame(file = list.files(data.dir, pattern = "tif$")) %>%
                                str_detect(file, "fai") == T ~ "fai_ndwi"),
          year = str_sub(file, -8, -5) %>% as.numeric())
 
-# Import waterbody data (both full size and 30 m buffer)
-wb_
+# Get CRS of the GEE imagery
+crs_obs <- raster(paste0(data.dir, files[1, "file"])) %>% crs(.)
 
-# Reproject waterbodies to be same projection as raster data
+# Import waterbody data (both full size and 30 m buffer)
+# Then reproject to CRS of imagery
+wb_whole <- readOGR(dsn = "../data/geospatial/important_water_bodies", 
+                    layer = "osmp_waterbodies_all_v2") %>% 
+  spTransform(., crs_obs)
+wb_30mbf <- readOGR(dsn = "../data/geospatial/important_water_bodies", 
+                    layer = "osmp_waterbodies_all_v2_30m_buffer")%>% 
+  spTransform(., crs_obs)
+
+################################################################################
+# 2 Extract data from each raster
+
+# Create a threshold for counting number of cells over n occurrences 
+cell_thresh = 3 # means the pixel must have exceeded the threshold this many times
+
+# Create dummy data frame to store data
+wb_extract <- data.frame()
+
 # Loop through each file
-# Import as raster
-# Set all values < 2 or 1 to 0
-# Raster extract to sum cells per waterbody for both shapefiles
-# Also get max, min, and mean
+for(i in 1:length(files$file)){
+  
+  # Get temporary info
+  tmp.info <- files[i, ]
+  
+  # Import imagery as raster
+  tmp.r <- raster(paste0(data.dir, tmp.info[, "file"]))
+  
+  # Extract max value using whole and buffered waterbodies
+  tmp.max.whole <- extract(tmp.r, wb_whole, fun = max)
+  tmp.max.30mbf <- extract(tmp.r, wb_30mbf, fun = max)
+  
+  # Count cells over count threshold
+  tmp.count.whole <- extract(tmp.r, wb_whole, 
+                         fun = function(x, ...) sum(x >= cell_thresh))
+  tmp.count.30mbf <- extract(tmp.r, wb_30mbf, 
+                             fun = function(x, ...) sum(x >= cell_thresh))
+  
+  
+  # Make dataframe for wb_whole
+  tmp.whole <- wb_whole@data %>% 
+    mutate(max_count = tmp.max.whole,
+           over_count = tmp.count.whole,
+           sensor = tmp.info[1, "sensor"],
+           algorithm = tmp.info[1, "algorithm"],
+           year = tmp.info[1, "year"],
+           wb_cat = "whole")
+  
+  # Make dataframe for wb_30mbf
+  tmp.30mbf <- wb_30mbf@data %>% 
+    mutate(max_count = tmp.max.30mbf,
+           over_count = tmp.count.30mbf,
+           sensor = tmp.info[1, "sensor"],
+           algorithm = tmp.info[1, "algorithm"],
+           year = tmp.info[1, "year"],
+           wb_cat = "30mbf")
+  
+  # Bind all to existing dataframe
+  wb_extract <- bind_rows(wb_extract, tmp.whole, tmp.30mbf)
+}
+
 # Record "hits" for fai/ndwi and nir:red per waterbody per year per sensor
