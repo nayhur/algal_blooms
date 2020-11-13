@@ -10,6 +10,8 @@ library(tidyverse)
 library(raster)
 library(sp)
 library(rgdal)
+library(foreach) # for parallel processing
+library(doMC); registerDoMC(cores = 4) # assign cores for parallel processing
 
 ################################################################################
 # 1 Import data
@@ -46,49 +48,57 @@ wb_30mbf <- readOGR(dsn = "../data/geospatial/important_water_bodies",
 # Create a threshold for counting number of cells over n occurrences 
 cell_thresh = 3 # means the pixel must have exceeded the threshold this many times
 
-# Create dummy data frame to store data
-wb_extract <- data.frame()
+# Loop through each file and output into list in parallel
+wb_extract.l <- 
+  foreach(i = seq_along(files$file), .errorhandling = "pass") %dopar% {
+    # Get temporary info
+    tmp.info <- files[i, ]
+    
+    # Import imagery as raster
+    tmp.r <- raster(paste0(data.dir, tmp.info[, "file"]))
+    
+    # Extract max value using whole and buffered waterbodies
+    tmp.max.whole <- extract(tmp.r, wb_whole, fun = max)
+    tmp.max.30mbf <- extract(tmp.r, wb_30mbf, fun = max)
+    
+    # Count cells over count threshold
+    tmp.count.whole <- extract(tmp.r, wb_whole, 
+                               fun = function(x, ...) sum(x >= cell_thresh))
+    tmp.count.30mbf <- extract(tmp.r, wb_30mbf, 
+                               fun = function(x, ...) sum(x >= cell_thresh))
+    
+    
+    # Make dataframe for wb_whole
+    tmp.whole <- wb_whole@data %>% 
+      mutate(max_count = tmp.max.whole,
+             over_count = tmp.count.whole,
+             sensor = tmp.info[1, "sensor"],
+             algorithm = tmp.info[1, "algorithm"],
+             year = tmp.info[1, "year"],
+             wb_cat = "whole")
+    
+    # Make dataframe for wb_30mbf
+    tmp.30mbf <- wb_30mbf@data %>% 
+      mutate(max_count = tmp.max.30mbf,
+             over_count = tmp.count.30mbf,
+             sensor = tmp.info[1, "sensor"],
+             algorithm = tmp.info[1, "algorithm"],
+             year = tmp.info[1, "year"],
+             wb_cat = "30mbf")
+    
+    # Bind all
+    tmp.extract <- bind_rows(tmp.whole, tmp.30mbf)
+    
+    # Output to list
+    tmp.extract
+  } # end parallel loop
 
-# Loop through each file
-for(i in 1:length(files$file)){
-  
-  # Get temporary info
-  tmp.info <- files[i, ]
-  
-  # Import imagery as raster
-  tmp.r <- raster(paste0(data.dir, tmp.info[, "file"]))
-  
-  # Extract max value using whole and buffered waterbodies
-  tmp.max.whole <- extract(tmp.r, wb_whole, fun = max)
-  tmp.max.30mbf <- extract(tmp.r, wb_30mbf, fun = max)
-  
-  # Count cells over count threshold
-  tmp.count.whole <- extract(tmp.r, wb_whole, 
-                         fun = function(x, ...) sum(x >= cell_thresh))
-  tmp.count.30mbf <- extract(tmp.r, wb_30mbf, 
-                             fun = function(x, ...) sum(x >= cell_thresh))
-  
-  
-  # Make dataframe for wb_whole
-  tmp.whole <- wb_whole@data %>% 
-    mutate(max_count = tmp.max.whole,
-           over_count = tmp.count.whole,
-           sensor = tmp.info[1, "sensor"],
-           algorithm = tmp.info[1, "algorithm"],
-           year = tmp.info[1, "year"],
-           wb_cat = "whole")
-  
-  # Make dataframe for wb_30mbf
-  tmp.30mbf <- wb_30mbf@data %>% 
-    mutate(max_count = tmp.max.30mbf,
-           over_count = tmp.count.30mbf,
-           sensor = tmp.info[1, "sensor"],
-           algorithm = tmp.info[1, "algorithm"],
-           year = tmp.info[1, "year"],
-           wb_cat = "30mbf")
-  
-  # Bind all to existing dataframe
-  wb_extract <- bind_rows(wb_extract, tmp.whole, tmp.30mbf)
-}
+################################################################################
+# Export data
 
-# Record "hits" for fai/ndwi and nir:red per waterbody per year per sensor
+# Put list into data frame
+wb_extract <- plyr::ldply(wb_extract.l, bind_rows)
+
+# Export
+saveRDS(object = wb_extract,
+        file = "../data/gee/processed/wb_extract.RDS")
