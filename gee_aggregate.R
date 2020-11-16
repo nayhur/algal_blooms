@@ -10,12 +10,14 @@
 
 # Load packages
 library(tidyverse)
+library(lubridate) # for date information
 
 # Source date functions
 devtools::source_url("https://raw.githubusercontent.com/SnowHydrology/date_functions/main/doy_dowy.R")
 
 # Add data directory string
 data.dir <- "../data/gee/time_series/"
+export.dir <- "../data/gee/processed/"
 
 # List files in Google Earth Engine folder
 files <- list.files(data.dir, pattern = "*pts.csv$")
@@ -48,13 +50,14 @@ df <- df %>%
   select(., -system.index, -(pixel_qa:QA60))
 
 # Add date information
-
+df <- df %>% 
+  mutate(year = year(date),
+         month = month(date),
+         doy = doy_FUN(date))
 
 # Export as RDS file
 df %>% 
-  select(sensor, date, type, id2, bcpos_id, osmp_id, 
-         BLU:hrwi, lswi:nir_red_br, qa_val) %>% 
-  saveRDS(paste0(data.dir, "sensors_all_aggregated.RDS"))
+  saveRDS(paste0(export.dir, "sensors_all_aggregated.RDS"))
 
 # Example plot
 filter(df, id2 == 4 & date > as.Date("2017-04-01")) %>% 
