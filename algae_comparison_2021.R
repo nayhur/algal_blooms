@@ -16,14 +16,14 @@ plot.dir <- "../plots/"
 
 # Import processed remote sesning data and chl-a data
 gee <- readRDS(paste0(data.dir, "gee/processed/sensors_all_aggregated_2021.RDS"))
-chla <- read.csv(paste0(data.dir, "water_quality/in_situ_2021/chla_2021.csv")) %>% 
-  mutate(date = as.Date(date, format = "%m/%d/%y"))
-cyano <- read.csv(paste0(data.dir, "water_quality/in_situ_2021/cyano_2021.csv")) %>% 
-  rename(sample = Sample.site,
-         date = Date,
-         cyano = Cyanobacteria) %>% 
-  mutate(date = as.Date(date, format = "%m/%d/%Y"),
+combined <- read.csv(paste0(data.dir, "water_quality/in_situ_2021/combined_2021.csv")) %>% 
+  mutate(date = as.Date(date, format = "%m/%d/%y"),
          sample = tolower(sample))
+chla <- combined %>% 
+  select(waterbody:sample, chl.a)
+cyano <- combined %>% 
+  select(waterbody:sample, cyano_count)
+  
 
 
 # Add a second waterbody column with label-ready names
@@ -80,7 +80,7 @@ sample_color_scale <-
 chla$nir_red_br <- NULL
 chla$fai <- NULL
 
-for(i in 1:length(chla$code)){
+for(i in 1:length(chla$sample)){
   tmp.sample  = chla[i, "sample"]
   tmp.date    = chla[i, "date"]
   tmp.gee     = filter(gee, sample == tmp.sample & date == tmp.date & edge == "no")
@@ -95,16 +95,28 @@ for(i in 1:length(chla$code)){
   chla[i, "fai"]        = tmp.fai
   
 }
+chla$waterbody2 <- ifelse(chla$waterbody == "sawhill1", "Sawhill No. 1",
+                          ifelse(chla$waterbody == "sombrero", "Sombrero Marsh",
+                                 ifelse(chla$waterbody == "teller5", "Teller Lake No. 5",
+                                        "Wonderland Lake")))
 ggplot() + 
   geom_point(data = chla, aes(nir_red_br, chl.a, color = sample)) + sample_color_scale +
   labs(x = "NIR:Red Ratio", y = "Chlorophyll-a (µg/L)") +
   geom_smooth(data = chla, aes(nir_red_br, chl.a),
               method = "lm", se = F, lty = "dashed", color = "gray") +
-  ylim(0, 300)
+  facet_wrap(~waterbody2, scales = "free")
+summary(lm(chl.a ~ nir_red_br, data = chla))
+summary(lm(chl.a ~ nir_red_br, data = filter(chla, waterbody == "sawhill1")))
+summary(lm(chl.a ~ nir_red_br, data = filter(chla, waterbody == "sombrero")))
+summary(lm(chl.a ~ nir_red_br, data = filter(chla, waterbody == "teller5")))
+summary(lm(chl.a ~ nir_red_br, data = filter(chla, waterbody == "wonderland")))
 
 
 # Loop through to get the cyano output
 cyano$cyano_rs <- -9999
+cyano$cyano <- ifelse(cyano$cyano_count >= 5,
+                      "1",
+                      "0")
 for(i in 1:length(cyano$cyano)){
   tmp.sample  = cyano[i, "sample"]
   tmp.date    = cyano[i, "date"]
